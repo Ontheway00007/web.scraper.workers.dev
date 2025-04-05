@@ -8,54 +8,68 @@ addEventListener('fetch', event => {
 })
 
 async function handleRequest(request) {
-  const searchParams = new URL(request.url).searchParams
+  const params = new URL(request.url).searchParams
 
-  let url = searchParams.get('url')
+  let url = params.get('url')
   if (url && !url.match(/^[a-zA-Z]+:\/\//)) url = 'http://' + url
 
-  const selector = searchParams.get('selector')
-  const attr = searchParams.get('attr')
-  const spaced = searchParams.get('spaced') // Adds spaces between tags
-  const pretty = searchParams.get('pretty')
+  const selector  = params.get('selector')
+  const attr      = params.get('attr')
+  const spaced    = params.get('spaced')   // Adds spaces between tags
+  const pretty    = params.get('pretty')
+  const pages     = params.get('pages')    // e.g. pages=5
+  const pageParam = params.get('pageParam') || 'page'
+  const startPage = parseInt(params.get('startPage') || '1', 10)
 
   if (!url || !selector) {
     return handleSiteRequest(request)
   }
 
-  return handleAPIRequest({ url, selector, attr, spaced, pretty })
+  return handleAPIRequest({ url, selector, attr, spaced, pretty, pages, pageParam, startPage })
 }
 
 async function handleSiteRequest(request) {
   const url = new URL(request.url)
-
   if (url.pathname === '/' || url.pathname === '') {
-    return new Response(html, {
-      headers: { 'content-type': contentTypes.html }
-    })
+    return new Response(html, { headers: { 'content-type': contentTypes.html } })
   }
-
   return new Response('Not found', { status: 404 })
 }
 
-async function handleAPIRequest({ url, selector, attr, spaced, pretty }) {
-  let scraper, result
-
+async function handleAPIRequest({ url, selector, attr, spaced, pretty, pages, pageParam, startPage }) {
   try {
-    scraper = await new Scraper().fetch(url)
-  } catch (error) {
-    return generateErrorJSONResponse(error, pretty)
-  }
+    let allResults = []
 
-  try {
-    if (!attr) {
-      result = await scraper.querySelector(selector).getText({ spaced })
+    if (pages) {
+      const pageCount = parseInt(pages, 10)
+      const base = new URL(url)
+
+      for (let i = 0; i < pageCount; i++) {
+        base.searchParams.set(pageParam, startPage + i)
+        const pageUrl = base.href
+
+        const scraper = await new Scraper().fetch(pageUrl)
+        // grab _all_ matches on this page
+        const items = Array.from(
+          await scraper.querySelectorAll(selector)
+        ).map(el => {
+          if (attr) return el.getAttribute(attr)
+          return el.textContent.trim()
+        }).filter(Boolean)
+
+        allResults.push(...items)
+      }
     } else {
-      result = await scraper.querySelector(selector).getAttribute(attr)
+      const scraper = await new Scraper().fetch(url)
+      if (attr) {
+        allResults = await scraper.querySelector(selector).getAttribute(attr)
+      } else {
+        allResults = await scraper.querySelector(selector).getText({ spaced })
+      }
     }
 
-  } catch (error) {
-    return generateErrorJSONResponse(error, pretty)
+    return generateJSONResponse({ result: allResults }, pretty)
+  } catch (err) {
+    return generateErrorJSONResponse(err, pretty)
   }
-
-  return generateJSONResponse({ result }, pretty)
 }
