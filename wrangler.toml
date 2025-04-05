@@ -1,4 +1,5 @@
 name = "web"
 account_id = "2575000dd90a08dbbeb2b8cca2e64775" # scraper.workers.dev
 workers_dev = true
-main = "src/index.ts"
+main = "index.js"
+
